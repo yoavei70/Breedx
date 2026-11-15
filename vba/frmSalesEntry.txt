@@ -1,0 +1,392 @@
+'==============================================================================
+' frmSalesEntry - BreedX Peppers sales entry form
+'
+' Paste this whole file into the code window of an EMPTY UserForm named
+' "frmSalesEntry". All controls (including the pop-up calendar) are created
+' at runtime, so nothing has to be drawn in the designer.
+'
+' Fields:
+'   Prodcut Catalog Number  (PK)  drop-down from Table!A
+'   Company                 (PK)  drop-down from Table!B
+'   Delivery Date           (PK)  default today, picked from a calendar
+'   Quantity of Seeds             whole number 0 - 1,000,000
+' Submit appends the record as the last row of Master with the update time.
+'==============================================================================
+Option Explicit
+
+' --- layout (points) ---
+Private Const LBL_LEFT As Single = 12
+Private Const LBL_WIDTH As Single = 130
+Private Const FLD_LEFT As Single = 146
+Private Const FLD_WIDTH As Single = 176
+Private Const ROW_HEIGHT As Single = 20
+Private Const ROW_GAP As Single = 30
+Private Const TOP_MARGIN As Single = 14
+
+Private Const DAY_W As Single = 25
+Private Const DAY_H As Single = 19
+
+' --- colours ---
+Private Const CLR_BUTTON As Long = &H8000000F     ' system button face
+Private Const CLR_SELECTED As Long = &HB4E0C6     ' light green (BGR)
+Private Const CLR_OTHER_MONTH As Long = &H999999
+Private Const CLR_ERROR As Long = &HC0
+
+' --- entry controls ---
+Private cboProduct As MSForms.ComboBox
+Private cboCompany As MSForms.ComboBox
+Private WithEvents txtDate As MSForms.TextBox
+Private WithEvents cmdCalendar As MSForms.CommandButton
+Private WithEvents txtQty As MSForms.TextBox
+Private WithEvents cmdSubmit As MSForms.CommandButton
+Private WithEvents cmdClose As MSForms.CommandButton
+Private lblStatus As MSForms.Label
+
+' --- calendar controls ---
+Private fraCal As MSForms.Frame
+Private lblMonth As MSForms.Label
+Private WithEvents cmdPrevMonth As MSForms.CommandButton
+Private WithEvents cmdNextMonth As MSForms.CommandButton
+Private WithEvents cmdToday As MSForms.CommandButton
+Private mDays(1 To 42) As clsDayButton
+
+' --- state ---
+Private mDeliveryDate As Date
+Private mCalMonth As Date          ' first day of the month shown
+Private mBaseHeight As Single      ' form height with the calendar closed
+
+'==============================================================================
+' Form setup
+'==============================================================================
+Private Sub UserForm_Initialize()
+    Dim y As Single
+
+    Me.Caption = "BreedX Peppers - New Sale"
+    Me.Width = FLD_LEFT + FLD_WIDTH + 24
+
+    y = TOP_MARGIN
+    AddLabel "Prodcut Catalog Number *", y
+    Set cboProduct = Me.Controls.Add("Forms.ComboBox.1", "cboProduct")
+    PlaceField cboProduct, y, FLD_WIDTH
+    cboProduct.Style = fmStyleDropDownList
+    FillComboFromTable cboProduct, 1      ' Table!A "Products"
+
+    y = y + ROW_GAP
+    AddLabel "Company *", y
+    Set cboCompany = Me.Controls.Add("Forms.ComboBox.1", "cboCompany")
+    PlaceField cboCompany, y, FLD_WIDTH
+    cboCompany.Style = fmStyleDropDownList
+    FillComboFromTable cboCompany, 2      ' Table!B "Company"
+
+    y = y + ROW_GAP
+    AddLabel "Delivery Date *", y
+    Set txtDate = Me.Controls.Add("Forms.TextBox.1", "txtDate")
+    PlaceField txtDate, y, FLD_WIDTH - 30
+    txtDate.Locked = True
+    txtDate.BackColor = &H80000005
+    Set cmdCalendar = Me.Controls.Add("Forms.CommandButton.1", "cmdCalendar")
+    With cmdCalendar
+        .Left = FLD_LEFT + FLD_WIDTH - 26
+        .Top = y
+        .Width = 26
+        .Height = ROW_HEIGHT
+        .Caption = "..."
+        .ControlTipText = "Pick a date from the calendar"
+        .TakeFocusOnClick = False
+    End With
+
+    y = y + ROW_GAP
+    AddLabel "Quantity of Seeds", y
+    Set txtQty = Me.Controls.Add("Forms.TextBox.1", "txtQty")
+    PlaceField txtQty, y, FLD_WIDTH
+    txtQty.MaxLength = 7
+    txtQty.TextAlign = fmTextAlignRight
+    txtQty.ControlTipText = "Whole number between 0 and 1,000,000"
+
+    y = y + ROW_GAP + 6
+    Set cmdSubmit = AddButton("cmdSubmit", "Submit", FLD_LEFT, y)
+    cmdSubmit.Default = True
+    Set cmdClose = AddButton("cmdClose", "Close", FLD_LEFT + 96, y)
+    cmdClose.Cancel = True
+
+    y = y + ROW_GAP + 2
+    Set lblStatus = Me.Controls.Add("Forms.Label.1", "lblStatus")
+    With lblStatus
+        .Left = LBL_LEFT
+        .Top = y
+        .Width = FLD_LEFT + FLD_WIDTH - LBL_LEFT
+        .Height = 28
+        .WordWrap = True
+        .Caption = "* Primary key: Product + Company + Delivery Date"
+        .ForeColor = &H808080
+    End With
+
+    BuildCalendar FLD_LEFT, TOP_MARGIN + 3 * ROW_GAP - 8
+
+    Me.Height = (Me.Height - Me.InsideHeight) + y + 36
+    mBaseHeight = Me.Height
+
+    ResetForm
+End Sub
+
+Private Sub AddLabel(ByVal text As String, ByVal y As Single)
+    With Me.Controls.Add("Forms.Label.1")
+        .Caption = text
+        .Left = LBL_LEFT
+        .Top = y + 3
+        .Width = LBL_WIDTH
+        .Height = ROW_HEIGHT
+    End With
+End Sub
+
+Private Sub PlaceField(ByVal ctl As Object, ByVal y As Single, ByVal w As Single)
+    ctl.Left = FLD_LEFT
+    ctl.Top = y
+    ctl.Width = w
+    ctl.Height = ROW_HEIGHT
+End Sub
+
+Private Function AddButton(ByVal ctlName As String, ByVal text As String, _
+                           ByVal x As Single, ByVal y As Single) As MSForms.CommandButton
+    Dim b As MSForms.CommandButton
+    Set b = Me.Controls.Add("Forms.CommandButton.1", ctlName)
+    b.Caption = text
+    b.Left = x
+    b.Top = y
+    b.Width = 80
+    b.Height = 24
+    Set AddButton = b
+End Function
+
+Private Sub ResetForm()
+    cboProduct.ListIndex = -1
+    cboCompany.ListIndex = -1
+    txtQty.Text = ""
+    SetDeliveryDate Date
+    HideCalendar
+    On Error Resume Next   ' SetFocus can fail before the form is visible
+    cboProduct.SetFocus
+End Sub
+
+Private Sub SetDeliveryDate(ByVal d As Date)
+    mDeliveryDate = DateSerial(Year(d), Month(d), Day(d))
+    txtDate.Text = Format$(mDeliveryDate, "mm/dd/yyyy")
+End Sub
+
+'==============================================================================
+' Submit / Close
+'==============================================================================
+Private Sub cmdSubmit_Click()
+    Dim errors As String
+    Dim qty As Long
+    Dim product As String, company As String
+    Dim existing As Collection
+    Dim newRow As Long
+
+    HideCalendar
+
+    If cboProduct.ListIndex < 0 Then errors = errors & "- Select a Prodcut Catalog Number." & vbLf
+    If cboCompany.ListIndex < 0 Then errors = errors & "- Select a Company." & vbLf
+    If Not TryParseQuantity(txtQty.Text, qty) Then
+        errors = errors & "- Quantity of Seeds must be a whole number between " & _
+                 Format$(QTY_MIN, "#,##0") & " and " & Format$(QTY_MAX, "#,##0") & "." & vbLf
+    End If
+
+    If Len(errors) > 0 Then
+        ShowStatus "Please fix the highlighted fields.", True
+        MsgBox "Please correct the following:" & vbLf & vbLf & errors, vbExclamation, Me.Caption
+        Exit Sub
+    End If
+
+    product = cboProduct.Value
+    company = cboCompany.Value
+
+    On Error GoTo SaveFailed
+
+    ' Primary key check: (Product, Company, Delivery Date) must be unique.
+    Set existing = FindRecordRows(product, company, mDeliveryDate)
+    If existing.Count > 0 Then
+        If MsgBox("A record for" & vbLf & vbLf & _
+                  "   Product:  " & product & vbLf & _
+                  "   Company:  " & company & vbLf & _
+                  "   Delivery: " & Format$(mDeliveryDate, "mm/dd/yyyy") & vbLf & vbLf & _
+                  "already exists in row " & existing(1) & " of " & SHEET_MASTER & "." & vbLf & _
+                  "Replace it with the new quantity (moved to the last row)?", _
+                  vbQuestion + vbYesNo + vbDefaultButton2, Me.Caption) = vbNo Then
+            ShowStatus "Not saved - duplicate key.", True
+            Exit Sub
+        End If
+    Else
+        Set existing = Nothing
+    End If
+
+    newRow = SaveSalesRecord(product, company, mDeliveryDate, qty, existing)
+
+    ResetForm
+    ShowStatus "Saved: " & product & " / " & company & " / " & _
+               Format$(qty, "#,##0") & " seeds  (" & SHEET_MASTER & " row " & newRow & ")", False
+    Exit Sub
+
+SaveFailed:
+    ShowStatus "Save failed.", True
+    MsgBox "The record could not be saved:" & vbLf & Err.Description, vbCritical, Me.Caption
+End Sub
+
+Private Sub cmdClose_Click()
+    Unload Me
+End Sub
+
+Private Sub ShowStatus(ByVal msg As String, ByVal isError As Boolean)
+    lblStatus.Caption = msg
+    lblStatus.ForeColor = IIf(isError, CLR_ERROR, &H8000&)
+End Sub
+
+' Quantity accepts digits only.
+Private Sub txtQty_KeyPress(ByVal KeyAscii As MSForms.ReturnInteger)
+    If KeyAscii < 48 Or KeyAscii > 57 Then KeyAscii = 0
+End Sub
+
+'==============================================================================
+' Pop-up calendar
+'==============================================================================
+Private Sub BuildCalendar(ByVal x As Single, ByVal y As Single)
+    Dim names As Variant
+    Dim i As Long, r As Long, c As Long
+    Dim gridTop As Single
+
+    Set fraCal = Me.Controls.Add("Forms.Frame.1", "fraCal")
+    With fraCal
+        .Caption = ""
+        .Left = x
+        .Top = y
+        .Width = 7 * DAY_W + 10
+        .Height = 22 + 14 + 6 * DAY_H + 22 + 10
+        .BorderStyle = fmBorderStyleSingle
+        .SpecialEffect = fmSpecialEffectFlat
+        .BackColor = &H80000005
+        .Visible = False
+    End With
+
+    Set cmdPrevMonth = AddCalButton("<", 2, 2, DAY_W)
+    Set cmdNextMonth = AddCalButton(">", 2 + 6 * DAY_W, 2, DAY_W)
+
+    Set lblMonth = fraCal.Controls.Add("Forms.Label.1", "lblMonth")
+    With lblMonth
+        .Left = 2 + DAY_W
+        .Top = 5
+        .Width = 5 * DAY_W
+        .Height = 14
+        .TextAlign = fmTextAlignCenter
+        .Font.Bold = True
+        .BackStyle = fmBackStyleTransparent
+    End With
+
+    names = Array("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
+    For c = 0 To 6
+        With fraCal.Controls.Add("Forms.Label.1")
+            .Caption = names(c)
+            .Left = 2 + c * DAY_W
+            .Top = 24
+            .Width = DAY_W
+            .Height = 12
+            .TextAlign = fmTextAlignCenter
+            .ForeColor = &H808080
+            .BackStyle = fmBackStyleTransparent
+        End With
+    Next c
+
+    gridTop = 38
+    For r = 0 To 5
+        For c = 0 To 6
+            i = r * 7 + c + 1
+            Set mDays(i) = New clsDayButton
+            Set mDays(i).Btn = AddCalButton("", 2 + c * DAY_W, gridTop + r * DAY_H, DAY_W)
+            Set mDays(i).Owner = Me
+        Next c
+    Next r
+
+    Set cmdToday = AddCalButton("Today", 2, gridTop + 6 * DAY_H + 2, 7 * DAY_W)
+End Sub
+
+Private Function AddCalButton(ByVal text As String, ByVal x As Single, _
+                              ByVal y As Single, ByVal w As Single) As MSForms.CommandButton
+    Dim b As MSForms.CommandButton
+    Set b = fraCal.Controls.Add("Forms.CommandButton.1")
+    b.Caption = text
+    b.Left = x
+    b.Top = y
+    b.Width = w
+    b.Height = DAY_H
+    b.TakeFocusOnClick = False
+    Set AddCalButton = b
+End Function
+
+Private Sub ShowCalendar()
+    Dim needed As Single
+
+    mCalMonth = DateSerial(Year(mDeliveryDate), Month(mDeliveryDate), 1)
+    RenderCalendar
+    fraCal.Visible = True
+    fraCal.ZOrder fmZOrderFront
+
+    needed = fraCal.Top + fraCal.Height + 8
+    If Me.InsideHeight < needed Then Me.Height = Me.Height + (needed - Me.InsideHeight)
+End Sub
+
+Private Sub HideCalendar()
+    If fraCal Is Nothing Then Exit Sub
+    fraCal.Visible = False
+    If mBaseHeight > 0 Then Me.Height = mBaseHeight
+End Sub
+
+Private Sub RenderCalendar()
+    Dim months As Variant
+    Dim firstDay As Date, gridStart As Date, d As Date
+    Dim i As Long
+
+    months = Array("January", "February", "March", "April", "May", "June", "July", _
+                   "August", "September", "October", "November", "December")
+    firstDay = mCalMonth
+    lblMonth.Caption = months(Month(firstDay) - 1) & " " & Year(firstDay)
+
+    gridStart = firstDay - (Weekday(firstDay, vbSunday) - 1)
+    For i = 1 To 42
+        d = gridStart + i - 1
+        With mDays(i).Btn
+            .Caption = CStr(Day(d))
+            .Tag = CStr(CLng(d))
+            .ForeColor = IIf(Month(d) = Month(firstDay), vbBlack, CLR_OTHER_MONTH)
+            .BackColor = IIf(d = mDeliveryDate, CLR_SELECTED, CLR_BUTTON)
+            .Font.Bold = (d = Date)
+        End With
+    Next i
+End Sub
+
+' Called by clsDayButton when a day is clicked.
+Public Sub CalendarDayPicked(ByVal d As Date)
+    SetDeliveryDate d
+    HideCalendar
+End Sub
+
+Private Sub cmdCalendar_Click()
+    If fraCal.Visible Then HideCalendar Else ShowCalendar
+End Sub
+
+Private Sub txtDate_MouseDown(ByVal Button As Integer, ByVal Shift As Integer, _
+                              ByVal X As Single, ByVal Y As Single)
+    If Not fraCal.Visible Then ShowCalendar
+End Sub
+
+Private Sub cmdPrevMonth_Click()
+    mCalMonth = DateAdd("m", -1, mCalMonth)
+    RenderCalendar
+End Sub
+
+Private Sub cmdNextMonth_Click()
+    mCalMonth = DateAdd("m", 1, mCalMonth)
+    RenderCalendar
+End Sub
+
+Private Sub cmdToday_Click()
+    CalendarDayPicked Date
+End Sub
