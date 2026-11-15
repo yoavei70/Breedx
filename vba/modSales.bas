@@ -3,10 +3,11 @@ Attribute VB_Name = "modSales"
 ' BreedX Peppers - Sales entry
 '
 ' Data layer for frmSalesEntry:
-'   * Reads the Products / Company lists from sheet "Table" (columns A / B).
+'   * Reads the Products / Company / Sales Representative lists from sheet
+'     "Table" (columns A / B / C).
 '   * Appends sales records to the last row of sheet "Master":
 '       A Prodcut Catalog Number | B Company | C Delivery Date |
-'       D Quantity of Seeds      | E Update Time
+'       D Quantity of Seeds      | E Update Time | F Sales Representative
 '   * The primary key of a record is (Product, Company, Delivery Date).
 '   * The data workbook is DATA_FILE in DATA_FOLDER. It is used directly when
 '     already open, otherwise it is opened from that folder.
@@ -26,6 +27,9 @@ Public Const COL_COMPANY As Long = 2      ' B
 Public Const COL_DELIVERY As Long = 3     ' C
 Public Const COL_QUANTITY As Long = 4     ' D
 Public Const COL_UPDATED As Long = 5      ' E
+Public Const COL_SALES_REP As Long = 6    ' F
+
+Public Const HDR_SALES_REP As String = "Sales Representative"
 
 Public Const QTY_MIN As Long = 0
 Public Const QTY_MAX As Long = 1000000
@@ -167,6 +171,7 @@ End Function
 '------------------------------------------------------------------------------
 Public Function SaveSalesRecord(ByVal product As String, ByVal company As String, _
                                 ByVal deliveryDate As Date, ByVal quantity As Long, _
+                                ByVal salesRep As String, _
                                 Optional ByVal rowsToReplace As Collection) As Long
     Dim ws As Worksheet
     Dim newRow As Long
@@ -183,6 +188,10 @@ Public Function SaveSalesRecord(ByVal product As String, ByVal company As String
         For i = rowsToReplace.Count To 1 Step -1
             ws.Rows(rowsToReplace(i)).Delete
         Next i
+    End If
+
+    If Len(Trim$(CStr(ws.Cells(1, COL_SALES_REP).Value))) = 0 Then
+        ws.Cells(1, COL_SALES_REP).Value = HDR_SALES_REP
     End If
 
     newRow = LastDataRow(ws) + 1
@@ -207,6 +216,10 @@ Public Function SaveSalesRecord(ByVal product As String, ByVal company As String
         .NumberFormat = "mm/dd/yyyy hh:mm:ss"
         .Value = Now
     End With
+    With ws.Cells(newRow, COL_SALES_REP)
+        .NumberFormat = "@"
+        .Value = salesRep
+    End With
 
     If SAVE_AFTER_SUBMIT Then ws.Parent.Save
 
@@ -214,13 +227,13 @@ Public Function SaveSalesRecord(ByVal product As String, ByVal company As String
 End Function
 
 '------------------------------------------------------------------------------
-' Last used row across the record columns (A:E); 1 when only headers exist.
+' Last used row across the record columns (A:F); 1 when only headers exist.
 '------------------------------------------------------------------------------
 Private Function LastDataRow(ByVal ws As Worksheet) As Long
     Dim c As Long, r As Long, maxRow As Long
 
     maxRow = FIRST_DATA_ROW - 1
-    For c = COL_PRODUCT To COL_UPDATED
+    For c = COL_PRODUCT To COL_SALES_REP
         r = ws.Cells(ws.Rows.Count, c).End(xlUp).Row
         If r > maxRow Then maxRow = r
     Next c

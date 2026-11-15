@@ -28,7 +28,10 @@ Select the target project (`coding Breedx.xlsm`) before importing, then run
 - Product and Company drop-downs come from the `Table` sheet (columns A and B).
 - Delivery Date defaults to today and is picked from a pop-up calendar.
 - Quantity of Seeds is a whole number from 0 to 1,000,000.
+- Sales Representative is a drop-down from the `Table` sheet, column C.
 - Submit appends the record to the last row of `Master` with the update time.
+  Master columns: A Product, B Company, C Delivery Date, D Quantity,
+  E Update Time, F Sales Representative.
   Product + Company + Delivery Date is the primary key; a duplicate asks before
   replacing the old row.
 

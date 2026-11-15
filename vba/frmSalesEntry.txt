@@ -10,6 +10,7 @@
 '   Company                 (PK)  drop-down from Table!B
 '   Delivery Date           (PK)  default today, picked from a calendar
 '   Quantity of Seeds             whole number 0 - 1,000,000
+'   Sales Representative          drop-down from Table!C
 ' Submit appends the record as the last row of Master with the update time.
 '==============================================================================
 Option Explicit
@@ -35,6 +36,7 @@ Private Const CLR_ERROR As Long = &HC0
 ' --- entry controls ---
 Private cboProduct As MSForms.ComboBox
 Private cboCompany As MSForms.ComboBox
+Private cboSalesRep As MSForms.ComboBox
 Private WithEvents txtDate As MSForms.TextBox
 Private WithEvents cmdCalendar As MSForms.CommandButton
 Private WithEvents txtQty As MSForms.TextBox
@@ -103,6 +105,13 @@ Private Sub UserForm_Initialize()
     txtQty.TextAlign = fmTextAlignRight
     txtQty.ControlTipText = "Whole number between 0 and 1,000,000"
 
+    y = y + ROW_GAP
+    AddLabel "Sales Representative *", y
+    Set cboSalesRep = Me.Controls.Add("Forms.ComboBox.1", "cboSalesRep")
+    PlaceField cboSalesRep, y, FLD_WIDTH
+    cboSalesRep.Style = fmStyleDropDownList
+    FillComboFromTable cboSalesRep, 3     ' Table!C "Sales Representative"
+
     y = y + ROW_GAP + 6
     Set cmdSubmit = AddButton("cmdSubmit", "Submit", FLD_LEFT, y)
     cmdSubmit.Default = True
@@ -161,6 +170,7 @@ End Function
 Private Sub ResetForm()
     cboProduct.ListIndex = -1
     cboCompany.ListIndex = -1
+    cboSalesRep.ListIndex = -1
     txtQty.Text = ""
     SetDeliveryDate Date
     HideCalendar
@@ -179,7 +189,7 @@ End Sub
 Private Sub cmdSubmit_Click()
     Dim errors As String
     Dim qty As Long
-    Dim product As String, company As String
+    Dim product As String, company As String, salesRep As String
     Dim existing As Collection
     Dim newRow As Long
 
@@ -191,6 +201,7 @@ Private Sub cmdSubmit_Click()
         errors = errors & "- Quantity of Seeds must be a whole number between " & _
                  Format$(QTY_MIN, "#,##0") & " and " & Format$(QTY_MAX, "#,##0") & "." & vbLf
     End If
+    If cboSalesRep.ListIndex < 0 Then errors = errors & "- Select a Sales Representative." & vbLf
 
     If Len(errors) > 0 Then
         ShowStatus "Please fix the highlighted fields.", True
@@ -200,6 +211,7 @@ Private Sub cmdSubmit_Click()
 
     product = cboProduct.Value
     company = cboCompany.Value
+    salesRep = cboSalesRep.Value
 
     On Error GoTo SaveFailed
 
@@ -220,11 +232,11 @@ Private Sub cmdSubmit_Click()
         Set existing = Nothing
     End If
 
-    newRow = SaveSalesRecord(product, company, mDeliveryDate, qty, existing)
+    newRow = SaveSalesRecord(product, company, mDeliveryDate, qty, salesRep, existing)
 
     ResetForm
     ShowStatus "Saved: " & product & " / " & company & " / " & _
-               Format$(qty, "#,##0") & " seeds  (" & SHEET_MASTER & " row " & newRow & ")", False
+               Format$(qty, "#,##0") & " seeds / " & salesRep & "  (" & SHEET_MASTER & " row " & newRow & ")", False
     Exit Sub
 
 SaveFailed:
